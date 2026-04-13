@@ -128,7 +128,25 @@
                 </div>
 
                 <div id="audioListArea" class="space-y-4">
-                    <h3 class="font-semibold text-slate-700">Các đoạn âm thanh (Tải về thủ công để ghép vào CapCut/Premiere):</h3>
+                    <!-- Khu vực tiêu đề -->
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-white p-3 rounded-lg border border-slate-200">
+                        <h3 class="font-semibold text-slate-700 text-sm">Tiến trình xử lý phụ đề:</h3>
+                    </div>
+
+                    <!-- KHU VỰC HIỂN THỊ FILE GỘP -->
+                    <div id="mergedAudioContainer" class="hidden flex-col sm:flex-row items-center justify-between p-4 bg-pink-50 border border-pink-200 rounded-lg shadow-sm transition-all duration-300">
+                        <div class="flex flex-col mb-3 sm:mb-0 w-full sm:w-auto">
+                            <span class="text-sm font-bold text-pink-700"><i class="fa-solid fa-file-audio mr-1"></i> File Gộp Hoàn Chỉnh</span>
+                            <span class="text-xs text-pink-600">Đã giữ nguyên khoảng lặng (timing) chuẩn theo Video/Sub</span>
+                        </div>
+                        <div class="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+                            <audio id="mergedAudioPlayer" controls class="h-10 w-full sm:w-48 lg:w-64 outline-none"></audio>
+                            <a id="mergedAudioDownload" href="#" class="w-full sm:w-auto px-4 py-2 bg-pink-600 hover:bg-pink-700 text-white rounded-lg text-sm font-bold transition-all flex items-center justify-center whitespace-nowrap shadow-sm">
+                                <i class="fa-solid fa-download mr-2"></i> Tải Về
+                            </a>
+                        </div>
+                    </div>
+                    
                     <div id="audioList" class="flex flex-col gap-2 max-h-60 overflow-y-auto pr-2">
                         <!-- Các đoạn audio sẽ được thêm bằng JS -->
                     </div>
@@ -154,6 +172,11 @@
         const speedVal = document.getElementById('speedVal');
         const voiceSelect = document.getElementById('voiceSelect');
         
+        // Gộp File DOM Elements
+        const mergedAudioContainer = document.getElementById('mergedAudioContainer');
+        const mergedAudioPlayer = document.getElementById('mergedAudioPlayer');
+        const mergedAudioDownload = document.getElementById('mergedAudioDownload');
+
         // DOM Elements Video
         const videoInput = document.getElementById('videoInput');
         const videoContainer = document.getElementById('videoContainer');
@@ -319,40 +342,31 @@
 
         // Hàm kiểm tra xem file âm thanh đã thực sự được tạo xong trên server FPT chưa
         async function waitForAudioReady(originalUrl, maxAttempts = 25) {
-            // Đợi 3 giây trước khi kiểm tra lần đầu (vì máy chủ thường cần thời gian tạo file)
+            // Đợi 3 giây trước khi kiểm tra lần đầu
             await new Promise(r => setTimeout(r, 3000));
 
             for (let i = 0; i < maxAttempts; i++) {
-                // Thêm timestamp để tránh trình duyệt lưu cache lỗi 404 cũ
                 const checkUrl = originalUrl + (originalUrl.includes('?') ? '&' : '?') + 't=' + new Date().getTime();
-                
                 try {
-                    // Cách 1: Thử dùng fetch (HEAD) để kiểm tra HTTP Status 200 (nhanh và chính xác)
                     const response = await fetch(checkUrl, { method: 'HEAD' });
                     if (response.ok) {
                         return checkUrl;
                     }
                 } catch (e) {
-                    // Cách 2: Nếu fetch bị chặn do bảo mật trình duyệt, fallback dùng thẻ Audio
                     const isReady = await new Promise(resolve => {
                         const audio = new Audio();
-                        // Nếu audio có thể tải dữ liệu -> file đã sẵn sàng
                         audio.onloadedmetadata = () => resolve(true);
                         audio.oncanplaythrough = () => resolve(true);
-                        // Nếu lỗi (ví dụ 404 Not Found) -> file chưa tạo xong
                         audio.onerror = () => resolve(false);
                         audio.src = checkUrl;
                     });
                     
                     if (isReady) {
-                        return checkUrl; // Trả về link đã có thể phát
+                        return checkUrl;
                     }
                 }
                 
-                // Cập nhật giao diện để người dùng biết đang chờ
                 btnText.textContent = `Hệ thống đang xử lý... (${i + 1}/${maxAttempts})`;
-                
-                // Nghỉ 3 giây trước khi kiểm tra lại
                 await new Promise(r => setTimeout(r, 3000));
             }
             return null;
@@ -380,15 +394,13 @@
             videoPlayer.addEventListener('timeupdate', () => {
                 const currentTime = videoPlayer.currentTime;
                 subtitlesData.forEach(sub => {
-                    // Play âm thanh khi thời gian video đi vào đoạn sub
                     if (currentTime >= sub.start && currentTime <= sub.end && !sub.played) {
                         sub.played = true;
                         if (sub.audioObj) {
                             sub.audioObj.currentTime = 0;
-                            sub.audioObj.play().catch(e => console.log("Lỗi Autoplay do trình duyệt chặn, hãy bấm Pause/Play lại:", e));
+                            sub.audioObj.play().catch(e => console.log("Lỗi Autoplay:", e));
                         }
                     }
-                    // Reset lại cờ nếu tua ngược lại
                     if (currentTime < sub.start) {
                         sub.played = false;
                         if (sub.audioObj) sub.audioObj.pause();
@@ -396,7 +408,6 @@
                 });
             });
 
-            // Khi người dùng bấm tua video
             videoPlayer.addEventListener('seeked', () => {
                 subtitlesData.forEach(sub => {
                     if (sub.audioObj) {
@@ -407,14 +418,12 @@
                 });
             });
 
-            // Khi tạm dừng video, dừng luôn giọng FPT
             videoPlayer.addEventListener('pause', () => {
                 subtitlesData.forEach(sub => {
                     if (sub.audioObj && !sub.audioObj.paused) sub.audioObj.pause();
                 });
             });
 
-            // Khi tiếp tục phát
             videoPlayer.addEventListener('play', () => {
                 const currentTime = videoPlayer.currentTime;
                 subtitlesData.forEach(sub => {
@@ -428,6 +437,191 @@
                     }
                 });
             });
+        }
+
+        // ==========================================
+        // KHỐI LỆNH XỬ LÝ GỘP AUDIO THÀNH FILE WAV
+        // ==========================================
+        
+        // Helper: Convert Float32Array to 16-bit PCM WAV File ArrayBuffer
+        function audioBufferToWav(buffer) {
+            let numChannels = buffer.numberOfChannels;
+            let sampleRate = buffer.sampleRate;
+            let format = 1; // PCM
+            let bitDepth = 16;
+            let result;
+
+            if (numChannels === 2) {
+                result = interleave(buffer.getChannelData(0), buffer.getChannelData(1));
+            } else {
+                result = buffer.getChannelData(0);
+            }
+
+            return encodeWAV(result, format, sampleRate, numChannels, bitDepth);
+        }
+
+        function interleave(inputL, inputR) {
+            let length = inputL.length + inputR.length;
+            let result = new Float32Array(length);
+            let index = 0, inputIndex = 0;
+            while (index < length) {
+                result[index++] = inputL[inputIndex];
+                result[index++] = inputR[inputIndex];
+                inputIndex++;
+            }
+            return result;
+        }
+
+        function encodeWAV(samples, format, sampleRate, numChannels, bitDepth) {
+            let bytesPerSample = bitDepth / 8;
+            let blockAlign = numChannels * bytesPerSample;
+            let buffer = new ArrayBuffer(44 + samples.length * bytesPerSample);
+            let view = new DataView(buffer);
+
+            // RIFF chunk descriptor
+            writeString(view, 0, 'RIFF');
+            view.setUint32(4, 36 + samples.length * bytesPerSample, true);
+            writeString(view, 8, 'WAVE');
+            
+            // fmt sub-chunk
+            writeString(view, 12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, format, true);
+            view.setUint16(22, numChannels, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * blockAlign, true);
+            view.setUint16(32, blockAlign, true);
+            view.setUint16(34, bitDepth, true);
+            
+            // data sub-chunk
+            writeString(view, 36, 'data');
+            view.setUint32(40, samples.length * bytesPerSample, true);
+
+            // Ghi dữ liệu PCM (16-bit)
+            floatTo16BitPCM(view, 44, samples);
+            return buffer;
+        }
+
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+
+        function floatTo16BitPCM(output, offset, input) {
+            for (let i = 0; i < input.length; i++, offset += 2) {
+                let s = Math.max(-1, Math.min(1, input[i]));
+                output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+            }
+        }
+
+        // Hàm Tự Động Gộp Audio
+        async function autoMergeAudio() {
+            try {
+                // Đổi UI sang trạng thái chờ
+                btnText.textContent = 'Đang tiến hành gộp thành 1 file... (Vui lòng đợi)';
+                
+                const sampleRate = 44100;
+                let maxDuration = 0;
+                const decodedAudios = [];
+                const tempAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+                // 1. Tải và giải mã từng file audio FPT (Xử lý lỗi CORS + Mixed Content triệt để)
+                for (let i = 0; i < subtitlesData.length; i++) {
+                    const sub = subtitlesData[i];
+                    if (!sub.audioUrl) continue;
+                    
+                    try {
+                        let response;
+                        
+                        // Lần thử 1: Fetch trực tiếp
+                        try {
+                            response = await fetch(sub.audioUrl);
+                            if (!response.ok) throw new Error("HTTP error");
+                        } catch (err1) {
+                            console.warn(`Đoạn ${i}: Fetch trực tiếp thất bại (do CORS/Mixed Content), dùng CORS proxy 1...`);
+                            
+                            // Lần thử 2: Bypass CORS qua codetabs (Rất ổn định)
+                            try {
+                                const proxyUrl1 = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(sub.audioUrl)}`;
+                                response = await fetch(proxyUrl1);
+                                if (!response.ok) throw new Error("Proxy 1 error");
+                            } catch (err2) {
+                                console.warn(`Đoạn ${i}: CORS Proxy 1 thất bại, dùng API AllOrigins...`);
+                                
+                                try {
+                                    // Lần thử 3: Fallback qua AllOrigins
+                                    const proxyUrl2 = `https://api.allorigins.win/raw?url=${encodeURIComponent(sub.audioUrl)}`;
+                                    response = await fetch(proxyUrl2);
+                                    if (!response.ok) throw new Error("Proxy 2 error");
+                                } catch (err3) {
+                                    console.warn(`Đoạn ${i}: Proxy 2 thất bại, dùng corsproxy.io...`);
+                                    // Lần thử 4: Fallback qua corsproxy.io
+                                    const proxyUrl3 = `https://corsproxy.io/?${encodeURIComponent(sub.audioUrl)}`;
+                                    response = await fetch(proxyUrl3);
+                                }
+                            }
+                        }
+
+                        if (!response || !response.ok) {
+                            throw new Error(`Không thể lấy dữ liệu Audio đoạn số ${i + 1}`);
+                        }
+
+                        const arrayBuffer = await response.arrayBuffer();
+                        const audioBuffer = await tempAudioCtx.decodeAudioData(arrayBuffer);
+                        
+                        decodedAudios.push({ buffer: audioBuffer, start: sub.start });
+                        
+                        const endTime = sub.start + audioBuffer.duration;
+                        if (endTime > maxDuration) {
+                            maxDuration = endTime;
+                        }
+                    } catch (e) {
+                        console.error(`Lỗi giải mã audio đoạn ${i}:`, e);
+                        throw new Error(`Không thể gộp do lỗi tải đoạn âm thanh số ${i + 1}. FPT Server có thể đang chặn kết nối.`);
+                    }
+                }
+
+                if (decodedAudios.length === 0) {
+                    throw new Error("Không có đoạn âm thanh nào tải thành công để gộp.");
+                }
+
+                // Cứ dự trù thêm 1 giây padding ở cuối file audio
+                maxDuration += 1.0;
+
+                // 2. Tạo Môi trường Vẽ (Offline Context)
+                const offlineCtx = new OfflineAudioContext(2, Math.ceil(sampleRate * maxDuration), sampleRate);
+
+                // 3. Xếp các đoạn âm thanh vào đúng mốc thời gian start time
+                decodedAudios.forEach(item => {
+                    const source = offlineCtx.createBufferSource();
+                    source.buffer = item.buffer;
+                    source.connect(offlineCtx.destination);
+                    source.start(item.start);
+                });
+
+                // 4. Bắt đầu Render toàn bộ sóng
+                const renderedBuffer = await offlineCtx.startRendering();
+
+                // 5. Chuyển đổi thành WAV và tạo link tải
+                const wavData = audioBufferToWav(renderedBuffer);
+                const blob = new Blob([new DataView(wavData)], { type: 'audio/wav' });
+                const downloadUrl = URL.createObjectURL(blob);
+                
+                // Cập nhật giao diện Nghe Thử và Tải Về
+                mergedAudioPlayer.src = downloadUrl;
+                mergedAudioDownload.href = downloadUrl;
+                mergedAudioDownload.download = `FPT_TTS_Gop_Chuan_${new Date().getTime()}.wav`;
+                
+                mergedAudioContainer.classList.remove('hidden');
+                mergedAudioContainer.classList.add('flex');
+
+                showMessage("Đã hoàn tất! Bạn có thể nghe thử và tải 1 file Audio tổng hợp bên dưới.", "info");
+
+            } catch (error) {
+                console.error("Lỗi gộp file:", error);
+                throw new Error(`Lỗi gộp hệ thống: ${error.message}`);
+            }
         }
 
         // Xử lý sự kiện click Convert
@@ -447,6 +641,15 @@
             // Giao diện: Đang xử lý
             hideMessage();
             resultArea.classList.add('hidden');
+            mergedAudioContainer.classList.add('hidden'); // Ẩn khung nghe thử file gộp
+            mergedAudioContainer.classList.remove('flex');
+            
+            // Xóa file gộp cũ khỏi bộ nhớ (nếu có) để tránh rò rỉ RAM
+            if (mergedAudioPlayer.src) {
+                URL.revokeObjectURL(mergedAudioPlayer.src);
+                mergedAudioPlayer.src = '';
+            }
+
             audioList.innerHTML = '';
             parsedTextDisplay.innerHTML = '';
             convertBtn.disabled = true;
@@ -482,25 +685,26 @@
                     }
 
                     if (data.async) {
+                        // FIX: Đảm bảo sử dụng https để tránh lỗi Mixed Content bị trình duyệt chặn 
+                        let secureUrl = data.async.replace('http://', 'https://');
+                        
                         // Chờ file âm thanh từng đoạn được tạo xong
-                        const finalAudioUrl = await waitForAudioReady(data.async);
+                        const finalAudioUrl = await waitForAudioReady(secureUrl);
                         if (finalAudioUrl) {
                             sub.audioUrl = finalAudioUrl;
                             sub.audioObj = new Audio(finalAudioUrl);
                             
-                            // Thêm nút nghe/tải cho từng đoạn
+                            // Chỉ hiển thị trạng thái xử lý xong, KHÔNG hiển thị trình phát hay nút tải lẻ
                             audioList.innerHTML += `
-                                <div class="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-lg shadow-sm">
+                                <div class="flex items-center justify-between p-3 bg-emerald-50 border border-emerald-100 rounded-lg shadow-sm">
                                     <div class="flex flex-col">
-                                        <span class="text-xs font-bold text-slate-500">Đoạn ${i + 1} (Phút ${Math.floor(sub.start/60)}:${Math.floor(sub.start%60)})</span>
-                                        <span class="text-sm font-medium truncate max-w-[200px] md:max-w-md">${sub.text}</span>
-                                    </div>
-                                    <div class="flex gap-2">
-                                        <audio controls class="h-8 w-32" src="${finalAudioUrl}"></audio>
-                                        <a href="${data.async}" target="_blank" download class="px-3 py-1 bg-emerald-100 text-emerald-700 hover:bg-emerald-200 rounded text-sm font-bold transition-all"><i class="fa-solid fa-download"></i> Tải</a>
+                                        <span class="text-xs font-bold text-emerald-600"><i class="fa-solid fa-check-circle mr-1"></i> Đoạn ${i + 1} xử lý xong (Phút ${Math.floor(sub.start/60)}:${Math.floor(sub.start%60)})</span>
+                                        <span class="text-sm font-medium text-slate-700 truncate max-w-[250px] md:max-w-xl">${sub.text}</span>
                                     </div>
                                 </div>
                             `;
+                            // Tự động cuộn xuống dưới cùng danh sách
+                            audioList.scrollTop = audioList.scrollHeight;
                         } else {
                             throw new Error(`Xử lý đoạn số ${i+1} quá thời gian chờ.`);
                         }
@@ -508,6 +712,13 @@
                     
                     // Nghỉ ngơi 1.5 giây giữa các API calls để tránh spam server FPT
                     await new Promise(r => setTimeout(r, 1500));
+                }
+
+                // ----------------------------------------------------
+                // TỰ ĐỘNG GỘP AUDIO NGAY SAU KHI LẤY XONG CÁC ĐOẠN LẺ
+                // ----------------------------------------------------
+                if (subtitlesData.some(sub => sub.audioUrl)) {
+                    await autoMergeAudio();
                 }
 
                 // Hoàn tất
@@ -518,10 +729,6 @@
                 if (videoInput.files.length > 0) {
                     videoContainer.classList.remove('hidden');
                     setupVideoSync();
-                    showMessage('Đã tải xong toàn bộ! Hãy bấm Play trên Video để xem kết quả đồng bộ.', 'info');
-                } else {
-                    videoContainer.classList.add('hidden');
-                    showMessage('Đã tạo xong toàn bộ file âm thanh lẻ! (Do không up Video nên bạn chỉ tải được list ở dưới)', 'info');
                 }
 
                 resultArea.classList.remove('hidden');
